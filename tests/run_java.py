@@ -12,11 +12,19 @@ subprocess.run([str(jdk / 'bin/javac'), '-encoding', 'UTF-8', '--release', '8', 
     str(root / 'src/org/nfcresearch/qpolllab/ImageBlocks.java'),
     str(root / 'src/org/nfcresearch/qpolllab/ImageRaster.java'),
     str(root / 'src/org/nfcresearch/qpolllab/CropWindow.java'),
+    str(root / 'src/org/nfcresearch/qpolllab/ConnectionRetry.java'),
+    str(root / 'src/org/nfcresearch/qpolllab/SessionFailure.java'),
+    str(root / 'src/org/nfcresearch/qpolllab/NciDiscovery.java'),
+    str(root / 'tests/ConnectionRetryTest.java'),
+    str(root / 'tests/SessionFailureTest.java'),
+    str(root / 'tests/NciDiscoveryTest.java'),
     str(root / 'tests/ProtocolTest.java'), str(root / 'tests/ImageBlocksTest.java'),
     str(root / 'tests/ImageRasterTest.java'), str(root / 'tests/CropWindowTest.java')], check=True)
 subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.ProtocolTest', str(out)], check=True)
 subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.ImageBlocksTest'], check=True)
 subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.ImageRasterTest', str(out)], check=True)
 subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.CropWindowTest'], check=True)
+for test in ('ConnectionRetryTest', 'SessionFailureTest', 'NciDiscoveryTest'):
+    subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.' + test], check=True)
 (root / 'build/last-test-dir.txt').write_text(out.name, encoding='utf-8')
 print('FIXTURES:', out)

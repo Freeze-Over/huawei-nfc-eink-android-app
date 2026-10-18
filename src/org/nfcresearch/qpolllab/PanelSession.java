@@ -35,11 +35,22 @@ public final class PanelSession {
         control.check();IsoDep iso=IsoDep.get(tag);
         if(iso==null)throw new IllegalArgumentException("目标未提供 ISO-DEP，未发送 APDU");
         try {
-            iso.connect();
+            long started=SystemClock.elapsedRealtime();
+            events.emit("STAGE","connecting|正在建立 ISO-DEP 连接");
+            events.emit("ISO_DEP","历史字节="+PanelProtocol.toHex(iso.getHistoricalBytes()==null?new byte[0]:iso.getHistoricalBytes())+"；高层响应="+PanelProtocol.toHex(iso.getHiLayerResponse()==null?new byte[0]:iso.getHiLayerResponse()));
+            try {iso.connect();}
+            catch(java.io.IOException e){
+                events.emit("CONNECT_FAILED","耗时="+(SystemClock.elapsedRealtime()-started)+" ms；"+e);
+                throw new ConnectionRetry.BeforeApdu(e);
+            }
+            events.emit("CONNECTED","ISO-DEP 已连接；耗时="+(SystemClock.elapsedRealtime()-started)+" ms；最大传输="+iso.getMaxTransceiveLength());
             if(iso.getMaxTransceiveLength()<257)throw new IllegalArgumentException("平台单次 APDU 长度不足 257 字节");
             PanelProtocol protocol=new PanelProtocol((command,timeout)->{
                 control.check();int remaining=(int)Math.max(1,deadline-control.now());iso.setTimeout(Math.min(timeout,remaining));
-                return iso.transceive(command);
+                String ins=String.format("%02X",command[1]&255);
+                if(command[1]!=(byte)0xD3&&command[1]!=(byte)0xDE)events.emit("APDU_BEGIN","INS="+ins+"；超时="+Math.min(timeout,remaining)+" ms");
+                try {return iso.transceive(command);}
+                catch(java.io.IOException e){events.emit("APDU_FAILED","INS="+ins+"；连接状态="+iso.isConnected()+"；"+e+"；不会自动重试协议操作");throw e;}
             },control);
             if(mode.equals("identity"))protocol.identify();
             else protocol.write(image,job.getInt("powerMs"),job.optInt("pollMs",PanelProtocol.DEFAULT_POLL_MS));

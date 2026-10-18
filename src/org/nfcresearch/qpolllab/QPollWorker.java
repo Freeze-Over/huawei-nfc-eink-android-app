@@ -200,8 +200,30 @@ public final class QPollWorker {
                 if(qtagRejection!=null)throw new IllegalStateException(qtagRejection);
                 if((mode.equals("qtag")||panelOperation)&&!qDiscoveryAccepted)emit("CAPABILITY","尚未确认 Q-Poll：未获得 0x71 指令及成功响应的完整证据；请查看日志。");
                 if (tagSeen.get()&&panelOperation) {
-                    emit("STAGE","connected|已激活目标，准备通信");
-                    PanelSession.run(detectedTag,mode,new File(args[4]),stopFile,QPollWorker::emit);
+                    final int scanSeconds=seconds;
+                    final File panelJob=new File(args[4]);
+                    final byte[] targetUid=detectedTag.getId().clone();
+                    final int[] connectionAttempt={0};
+                    ConnectionRetry.run(()->{
+                        if(stopFile.exists())throw new InterruptedException("已停止，未开始协议通信");
+                        if(!Arrays.equals(targetUid,detectedTag.getId()))throw new java.io.IOException("重新寻到不同 UID 的标签，停止；尚未发送 APDU");
+                        emit("CONNECT_ATTEMPT",(++connectionAttempt[0])+" / 3");
+                        PanelSession.run(detectedTag,mode,panelJob,stopFile,QPollWorker::emit);
+                    },()->{
+                        if(stopFile.exists())throw new InterruptedException("已停止重新寻卡");
+                        emit("RECONNECT","尚未发送 APDU；重新寻卡以获取新标签，最多三次连接尝试");
+                        reader(0);
+                        SystemClock.sleep(200);
+                        detectedTag=null;tagSeen.set(false);stopping.set(false);
+                        if(stopFile.exists())throw new InterruptedException("已停止重新寻卡");
+                        reader(0x81);
+                        emit("START",mode+":"+scanSeconds);
+                        long retryDeadline=SystemClock.elapsedRealtime()+scanSeconds*1000L;
+                        while(!stopping.get()&&!stopFile.exists()&&SystemClock.elapsedRealtime()<retryDeadline)SystemClock.sleep(20);
+                        if(stopFile.exists())throw new InterruptedException("已停止重新寻卡");
+                        if(qtagRejection!=null)throw new IllegalStateException(qtagRejection);
+                        if(!tagSeen.get())throw new java.io.IOException("连接失败后重新寻卡超时；尚未发送 APDU");
+                    });
                     if(mode.equals("identity"))emit("RESULT","D1 屏幕规格与原厂配置校验通过，未写图像");
                 }
                 else if (tagSeen.get()) emit("RESULT", "已收到标签；只显示元信息，未发送 APDU");
@@ -213,6 +235,8 @@ public final class QPollWorker {
             emit("CANCELLED",e.getMessage());exit=3;
         } catch (Throwable e) {
             emit("ERROR", e.getClass().getSimpleName() + ": " + e.getMessage()); exit = 1;
+            java.io.StringWriter trace=new java.io.StringWriter();e.printStackTrace(new java.io.PrintWriter(trace));
+            for(String line:trace.toString().split("\n"))emit("TRACE",line.trim());
         } finally {
             cleanup();
             if (readerTouched || qtagTouched) {
