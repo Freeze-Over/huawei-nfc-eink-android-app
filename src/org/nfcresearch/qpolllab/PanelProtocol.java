@@ -65,12 +65,22 @@ public final class PanelProtocol {
             if(fields.containsKey(tag)||i+n>data.length)throw new IllegalArgumentException("D1 TLV 重复或截断");
             fields.put(tag,Arrays.copyOfRange(data,i,i+n));i+=n;
         }
-        for(int[] f:new int[][]{{0xA0,7},{0xA1,7},{0xB1,1},{0xB2,1},{0xC0,4},{0xD1,7}})
-            if(!fields.containsKey(f[0])||fields.get(f[0]).length!=f[1])throw new IllegalArgumentException("D1 字段缺失或长度异常");
-        if(!Arrays.equals(fields.get(0xA0),GEOMETRY)||!Arrays.equals(fields.get(0xA1),SCAN)
-                ||!Arrays.equals(fields.get(0xC0),hex("201EA001"))||fields.get(0xD1)[0]!=1
-                ||(fields.get(0xB1)[0]&255)!=2)
-            throw new IllegalArgumentException("目标配置与已验证的原厂扫描配置不匹配；不会改写 DB/DA");
+        StringBuilder mismatch=new StringBuilder();
+        for(int[] f:new int[][]{{0xA0,7},{0xA1,7},{0xB1,1},{0xB2,1},{0xC0,4},{0xD1,7}}) {
+            byte[] actual=fields.get(f[0]);
+            if(actual==null||actual.length!=f[1])
+                mismatch.append(String.format("\n%02X 长度：期望=%d，实际=%s",f[0],f[1],actual==null?"缺失":actual.length+" ("+toHex(actual)+")"));
+        }
+        int[] tags={0xA0,0xA1,0xC0,0xB1,0xD1};
+        byte[][] expected={GEOMETRY,SCAN,hex("201EA001"),hex("02"),hex("01")};
+        for(int i=0;i<tags.length;i++) {
+            byte[] actual=fields.get(tags[i]);
+            if(actual==null||actual.length==0)continue;
+            boolean matches=tags[i]==0xD1?actual[0]==1:Arrays.equals(actual,expected[i]);
+            if(!matches)mismatch.append(String.format("\n%02X%s：期望=%s，实际=%s",tags[i],tags[i]==0xD1?" 首字节":"",toHex(expected[i]),toHex(actual)));
+        }
+        if(mismatch.length()>0)
+            throw new IllegalArgumentException("目标配置与已验证的原厂扫描配置不匹配；不会改写 DB/DA"+mismatch);
         // UID is diagnostic only; any compatible screen may be used, with no ID allowlist.
         return new Info(fields);
     }

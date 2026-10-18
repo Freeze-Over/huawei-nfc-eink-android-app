@@ -54,6 +54,12 @@ public final class ProtocolTest {
         byte[] duplicate=Arrays.copyOf(INFO,INFO.length+3);System.arraycopy(PanelProtocol.hex("B101029000"),0,duplicate,INFO.length-2,5);
         rejects(()->PanelProtocol.parseInfo(duplicate),"duplicate TLV");
         byte[] badScan=INFO.clone();badScan[13]=0x11;rejects(()->PanelProtocol.parseInfo(badScan),"factory scan mismatch");passed("screen profile and malformed TLV gates");
+        try {PanelProtocol.parseInfo(badScan);throw new AssertionError("mismatch accepted");}
+        catch(IllegalArgumentException e){eq(e.getMessage().contains("A1：期望=00120030FFFFFF，实际=00121130FFFFFF"),"scan diagnostic contains expected and actual");}
+        byte[] multiple=badScan.clone();multiple[20]=3;
+        try {PanelProtocol.parseInfo(multiple);throw new AssertionError("multiple mismatches accepted");}
+        catch(IllegalArgumentException e){eq(e.getMessage().contains("A1：")&&e.getMessage().contains("B1：期望=02，实际=03"),"all mismatches reported together");}
+        passed("field-level mismatch diagnostics");
         eq(PanelProtocol.toHex(PanelProtocol.packCodes(new byte[]{3,0,2,1,1,2,0,3},2,4)).equals("E41B"),"packing direction vector");passed("factory scan packing direction");
         Fake other=new Fake();other.info=withUid(PanelProtocol.hex("87654321"));other.run();eq(other.d3==476&&other.d4==1&&other.emitted("REFRESH_DONE"),"second screen completes with a different UID");passed("different UID follows full upload and refresh path");
         Fake mismatch=new Fake();mismatch.info=badScan;rejects(mismatch::run,"profile mismatch before authentication");eq(mismatch.d8+mismatch.pin+mismatch.d3+mismatch.d4==0,"profile rejection before mutating commands");passed("incompatible screen profile still sends only D1");
