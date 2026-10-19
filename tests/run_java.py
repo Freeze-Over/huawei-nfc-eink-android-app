@@ -9,6 +9,8 @@ jdk = Path(os.environ['JAVA_HOME'])
 out = Path(tempfile.mkdtemp(prefix='protocol-tests-', dir=root / 'build'))
 subprocess.run([str(jdk / 'bin/javac'), '-encoding', 'UTF-8', '--release', '8', '-d', str(out),
     str(root / 'src/org/nfcresearch/qpolllab/PanelProtocol.java'),
+    str(root / 'src/org/nfcresearch/qpolllab/PanelType.java'),
+    str(root / 'tests/PanelTypeTest.java'),
     str(root / 'src/org/nfcresearch/qpolllab/ImageBlocks.java'),
     str(root / 'src/org/nfcresearch/qpolllab/ImageRaster.java'),
     str(root / 'src/org/nfcresearch/qpolllab/CropWindow.java'),
@@ -24,7 +26,7 @@ subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpollla
 subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.ImageBlocksTest'], check=True)
 subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.ImageRasterTest', str(out)], check=True)
 subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.CropWindowTest'], check=True)
-for test in ('ConnectionRetryTest', 'SessionFailureTest', 'NciDiscoveryTest'):
-    subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.' + test], check=True)
+for test in ('PanelTypeTest', 'ConnectionRetryTest', 'SessionFailureTest', 'NciDiscoveryTest'):
+    subprocess.run([str(jdk / 'bin/java'), '-cp', str(out), 'org.nfcresearch.qpolllab.' + test, str(out)], check=True)
 (root / 'build/last-test-dir.txt').write_text(out.name, encoding='utf-8')
 print('FIXTURES:', out)

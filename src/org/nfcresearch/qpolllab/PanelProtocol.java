@@ -24,6 +24,7 @@ public final class PanelProtocol {
     public static final class Info {
         public final Map<Integer,byte[]> fields;
         public final String uid;
+        public boolean topDown(){return fields.get(0xA1)[0]==1;}
         Info(Map<Integer,byte[]> fields){this.fields=fields;byte[] id=fields.get(0xC1);this.uid=id==null?"未提供":toHex(id);}
         public String description(){return "UID="+uid+" · 552×768 四色 · 保留当前原厂配置";}
     }
@@ -77,6 +78,7 @@ public final class PanelProtocol {
             byte[] actual=fields.get(tags[i]);
             if(actual==null||actual.length==0)continue;
             boolean matches=tags[i]==0xD1?actual[0]==1:Arrays.equals(actual,expected[i]);
+            if(tags[i]==0xA1&&Arrays.equals(actual,hex("01120030FFFFFF")))matches=true;
             if(!matches)mismatch.append(String.format("\n%02X%s：期望=%s，实际=%s",tags[i],tags[i]==0xD1?" 首字节":"",toHex(expected[i]),toHex(actual)));
         }
         if(mismatch.length()>0)
@@ -142,7 +144,10 @@ public final class PanelProtocol {
         if(pollMs<0||pollMs>500)throw new IllegalArgumentException("忙状态查询间隔必须为 0–500 ms");
         byte[] refresh=d4(powerMs); // Validate every option before any authentication/write.
         control.event("TIMING","忙状态查询间隔="+pollMs+" ms（每次应答后等待）");
-        identify();
+        Info initial=identify();
+        packed=PanelType.forScan(packed,initial.topDown());
+        control.event("SCAN","采用板内扫描方向="+(initial.topDown()?"01（从上到下）":"00（从下到上）")+"；不改写驱动配置");
+        control.event("WIRE_IMAGE","实际传输 SHA-256="+toHex(java.security.MessageDigest.getInstance("SHA-256").digest(packed)));
         control.event("STAGE","authenticating|检查图像区访问权限");
         byte[] access=exchange(D8,"D8 权限查询",5000,false);
         if(status(access)==0x6985) {
@@ -150,7 +155,8 @@ public final class PanelProtocol {
             exchange(D8,"D8 再次检查",5000,true);
         } else requireOk(access,"D8 权限查询");
         // Check the same factory profile again; no DB/DA configuration writes exist here.
-        parseInfo(exchange(D1,"D1 写入前复核",5000,true));
+        Info rechecked=parseInfo(exchange(D1,"D1 写入前复核",5000,true));
+        if(initial.topDown()!=rechecked.topDown())throw new IllegalArgumentException("扫描配置在会话中发生变化，未传图");
         control.event("STAGE","uploading|正在传输图片，请保持贴合");
         int confirmed=0,total=0;
         for(int offset=0;offset<packed.length;offset+=2000) {

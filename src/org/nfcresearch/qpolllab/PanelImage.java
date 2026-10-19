@@ -20,7 +20,8 @@ public final class PanelImage {
         public final Bitmap preview;
         public final byte[] packed;
         public final String settings;
-        Prepared(Bitmap preview,byte[] packed,String settings){this.preview=preview;this.packed=packed;this.settings=settings;}
+        public final String panelType;
+        Prepared(Bitmap preview,byte[] packed,String settings,String panelType){this.preview=preview;this.packed=packed;this.settings=settings;this.panelType=panelType;}
     }
     public static Bitmap load(ContentResolver resolver,Uri uri) throws Exception {
         BitmapFactory.Options options=new BitmapFactory.Options();options.inJustDecodeBounds=true;
@@ -62,7 +63,7 @@ public final class PanelImage {
         Matrix rotate=new Matrix();rotate.setRotate(rotation);
         return Bitmap.createBitmap(source,0,0,source.getWidth(),source.getHeight(),rotate,true);
     }
-    public static Prepared prepare(Bitmap source,int rotation,boolean cover,boolean dither,int block,boolean binary,int threshold,boolean cropped) {
+    public static Prepared prepare(Bitmap source,int rotation,boolean cover,boolean dither,int block,boolean binary,int threshold,boolean cropped,String panelType) {
         if(block>1)dither=false;
         Bitmap input=rotated(source,rotation);
         Bitmap fitted=Bitmap.createBitmap(552,768,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(fitted);canvas.drawColor(Color.WHITE);
@@ -72,9 +73,11 @@ public final class PanelImage {
         int[] pixels=new int[552*768];
         fitted.getPixels(pixels,0,552,0,0,552,768);
         byte[] codes=ImageRaster.quantize(pixels,552,768,binary,threshold,dither,block);
-        byte[] packed=PanelProtocol.packCodes(codes,552,768);
-        Bitmap image=Bitmap.createBitmap(ImageRaster.preview(packed,552,768),552,768,Bitmap.Config.ARGB_8888);
-        String settings=(binary?"黑白二值化 · 阈值 "+threshold:"黑白黄红四色")+" · 简化："+(block==1?"原始细节":block+"×"+block+" 色块")+" · 抖动："+(dither?"开启":"关闭")+" · "+(cropped?"已手动裁切 · ":"")+"旋转 "+rotation+"° · "+(cover?"填满":"留白");
-        return new Prepared(image,packed,settings);
+        // An unselected panel can still preview; sending requires an explicit selection.
+        PanelType type=panelType.isEmpty()?PanelType.A1:PanelType.parse(panelType);
+        byte[] packed=type.pack(codes);
+        Bitmap image=Bitmap.createBitmap(type.preview(packed),552,768,Bitmap.Config.ARGB_8888);
+        String settings="屏幕："+(panelType.isEmpty()?"尚未选择":panelType)+" · "+(binary?"黑白二值化 · 阈值 "+threshold:"黑白黄红四色")+" · 简化："+(block==1?"原始细节":block+"×"+block+" 色块")+" · 抖动："+(dither?"开启":"关闭")+" · "+(cropped?"已手动裁切 · ":"")+"旋转 "+rotation+"° · "+(cover?"填满":"留白");
+        return new Prepared(image,packed,settings,panelType);
     }
 }

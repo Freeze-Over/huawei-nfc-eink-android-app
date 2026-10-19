@@ -16,6 +16,8 @@ public final class PanelSession {
         byte[] config=read(jobFile,8192);JSONObject job=new JSONObject(new String(config,"UTF-8"));
         byte[] image=null;
         if(mode.equals("refresh")) {
+            PanelType type=PanelType.parse(job.optString("panelType",""));
+            events.emit("PANEL_TYPE","用户选择="+type+"；D1 不识别实体屏幕型号；保留板内驱动");
             File data=new File(job.getString("imageFile")).getCanonicalFile();
             if(!data.getParentFile().equals(jobFile.getCanonicalFile().getParentFile()))throw new IllegalArgumentException("图像快照路径错误");
             image=read(data,PanelProtocol.IMAGE_BYTES);
