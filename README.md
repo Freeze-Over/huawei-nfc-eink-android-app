@@ -1,11 +1,11 @@
 # Huawei NFC E-Ink Android App
 
-Android 墨水屏刷新工具，当前实验版本 **v2.12.1-reset**（基于 v2.12.0-reader-test1）。统一通过 Shizuku（Shell / Root）调用兼容系统的 NXP Q-Poll，再通过 Android ISO-DEP 向 **552×768 四色华为 A0 / A1 墨水屏**传图刷新，使用板内已存驱动。
+Android 墨水屏刷新工具，当前实验版本 **v2.12.4-reset**（基于 v2.12.0-reader-test1）。统一通过 Shizuku（Shell / Root）调用兼容系统的 NXP Q-Poll，再通过 Android ISO-DEP 向 **552×768 四色华为 A0 / A1 墨水屏**传图刷新，使用板内已存驱动。
 
-> **v2.12.1-reset（本 fork）**：刷图前自动做一次 RF 场复位，替代“把手机从壳子上拿开再贴回”。
+> **v2.12.4-reset（本 fork）**：刷图前自动做一次 RF 场复位，替代“把手机从壳子上拿开再贴回”。
 > 适用于只认 7-bit `0x7A` 唤醒帧、且会话结束后必须靠断场才能重新应答的壳子（小米 15 Pro / ST54L 等）。
 
-## v2.12.1-reset：刷图前自动断场复位
+## v2.12.4-reset：刷图前自动断场复位
 
 在 `refresh` / `identity` 进入 ReaderMode 之前执行：
 
@@ -16,13 +16,18 @@ pausePolling(合法超时)  →  关场保持 2 s  →  下发 0x13 / 01 2A 02 0
 
 要点：
 
-- **修复**：`INfcAdapter.pausePolling` 的参数是 `long`，不是 `int`。之前按 `int` 反射会抛
-  `NoSuchMethodException`，五个候选全部失败后静默跳过断场，场一直开着，所以仍然要手动拿开壳子。
+- **修复**：`INfcAdapter.pausePolling` 的签名随系统版本不同——Android 16 / ST54L 是 `long`，
+  Android 15 / NXP 是 `int`。现在两种签名都会尝试；之前只按一种反射会在另一类系统上抛
+  `NoSuchMethodException`，断场被静默跳过，场一直开着，所以仍然要手动拿开壳子。
 - **顺序**：先关场 → 壳子掉电复位 → 配好 7A → App 的 ReaderMode 先就位 → 再开场，
   这样场恢复后的第一轮寻卡归 App，而不是被系统标签分发抢走。
 - `qtag(1)` 返回非 0（ST 栈上 `0x70` 返回 `05`）不再中止刷图，只记 `QTAG_REJECTED`。
 - `cleanup()` 补 `resumePolling()`，异常退出不会把 NFC 留在暂停态。
 - 日志新增 `QP|RESET|…`，可看到 `pause`、关场时长、7A 配置状态与开场。
+- **NXP / 受限 ROM（v2.12.4）**：部分 ROM 的 `pausePolling` 要求 `WRITE_SECURE_SETTINGS`，Shell 身份会被拒；
+  此时自动通过 `su` 以 root 调用 `RootPause`（同样兼容 `int` / `long` 两种签名）完成关场/开场
+  （红米 Note 12 Turbo / NXP SN100U 已按此处理）。root 也不可用时只记一条 `跳过断场`，
+  不再重复 5 次。`0x13/7A` 只对 ST54L 设备下发，NXP 上自动跳过，NXP 的 QTag 寻卡不受影响。
 
 已知限制：刷新阶段仍可能遇到 `DE ... SW=68CA`（低电压/供能不足），属于贴合压力与供电问题，
 与寻卡无关；压紧壳子或把「上电等待」调到 3000–5000 ms 后重试即可。

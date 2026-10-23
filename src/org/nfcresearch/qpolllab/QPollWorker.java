@@ -115,22 +115,76 @@ public final class QPollWorker {
     private static final byte[] POLL_7A = {0x01, 0x2A, 0x02, 0x0A, 0x7A};
     private static long resetDwellMs = 2000;
     private static int resetPauseMs = -1;
+    private static boolean rootPauseUsed;
+    private static Boolean stDevice;
+    private static boolean isStDevice() {
+        if (stDevice != null) return stDevice;
+        // ST 栈的标志文件；只要存在就按 ST 处理（存在性检查不依赖可读权限，
+        // 避免 shell 读不到 vendor 配置时误判成 NXP 而跳过 7A）。
+        boolean found = new File("/odm/etc/libnfc-hal-st.conf").exists()
+                || new File("/vendor/etc/libnfc-hal-st.conf").exists();
+        stDevice = found;
+        return found;
+    }
+    private static String runRoot(String action, int ms) {
+        String apk = System.getenv("CLASSPATH");
+        if (apk == null || apk.isEmpty()) { emit("RESET", "root 回退不可用：CLASSPATH 为空"); return null; }
+        String cmd = "ANDROID_DATA=/data ANDROID_ROOT=/system CLASSPATH=" + apk
+                + " /system/bin/app_process /system/bin org.nfcresearch.qpolllab.RootPause "
+                + action + (ms > 0 ? " " + ms : "");
+        try {
+            Process p = new ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start();
+            StringBuilder out = new StringBuilder();
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line; while ((line = in.readLine()) != null) { if (out.length() < 400) out.append(line).append(' '); }
+            }
+            if (p.waitFor() != 0) { emit("RESET", "root " + action + " 退出码非 0：" + out); return null; }
+            return out.toString();
+        } catch (Throwable t) {
+            emit("RESET", "root " + action + " 异常：" + t);
+            return null;
+        }
+    }
+    private static void pausePolling(int ms) throws Exception {
+        // Android 16 / ST54L: pausePolling(long)；Android 15 / NXP: pausePolling(int)。
+        try {
+            invoke("pausePolling", new Class<?>[]{long.class}, (long) ms);
+        } catch (NoSuchMethodException e) {
+            invoke("pausePolling", new Class<?>[]{int.class}, ms);
+        }
+    }
     private static void resetPanel() {
         resetPauseMs = -1;
+        rootPauseUsed = false;
         for (int ms : PAUSE_CANDIDATES) {
             try {
-                invoke("pausePolling", new Class<?>[]{long.class}, (long) ms);
+                pausePolling(ms);
                 resetPauseMs = ms;
+                break;
+            } catch (SecurityException e) {
+                // Shell 没有 WRITE_SECURE_SETTINGS：尝试用 root 关场（NXP 等 ROM）。
+                String out = runRoot("pause", ms);
+                if (out != null && out.contains("ROOTPAUSE|")) {
+                    resetPauseMs = ms;
+                    rootPauseUsed = true;
+                    emit("RESET", "Shell 无权限，已用 root 关场（pause=" + ms + "）");
+                } else {
+                    emit("RESET", "跳过断场：Shell 与 root 都未能暂停轮询");
+                }
                 break;
             } catch (Throwable t) {
                 emit("RESET", "pausePolling(" + ms + ") 被拒：" + t);
             }
         }
         if (resetPauseMs < 0) {
-            emit("RESET", "无法暂停轮询，跳过断场；直接开始寻卡");
+            emit("RESET", "未断场，直接开始寻卡");
         } else {
             emit("RESET", "已关场 " + resetDwellMs + " ms（pause=" + resetPauseMs + "），等壳子掉电复位");
             SystemClock.sleep(resetDwellMs);
+        }
+        if (!isStDevice()) {
+            emit("RESET", "非 ST54L 设备，跳过 0x13/7A 配置");
+            return;
         }
         try {
             int status = vendor(15, 1, new byte[]{(byte) 0x13, 0x01, 0x2A, 0x02, 0x0A, 0x7A});
@@ -211,7 +265,14 @@ public final class QPollWorker {
         synchronized (cleanupLock) {
         if (!cleaned.compareAndSet(false, true)) return;
         if (resetPauseMs > 0) {
-            try { invoke("resumePolling", new Class<?>[0]); } catch (Exception ignored) { }
+            try {
+                if (rootPauseUsed) {
+                    String out = runRoot("resume", 0);
+                    if (out == null || !out.contains("ROOTRESUME|")) throw new IllegalStateException("root resume failed: " + out);
+                } else {
+                    invoke("resumePolling", new Class<?>[0]);
+                }
+            } catch (Exception ignored) { }
         }
         if(halDiscovery&&readerTouched){
             emit("HOOK_RESTORE_REQUEST","先读取注入统计并关闭兼容开关，再恢复普通寻卡");
@@ -294,8 +355,16 @@ public final class QPollWorker {
                 if(directSession!=null) {directSession.start();qDiscoveryAccepted=true;}
                 else reader(0x81); // NFC-A + skip NDEF; the NXP extension rewrites discovery to Q_POLL.
                 if (resetPauseMs > 0) {
-                    try { invoke("resumePolling", new Class<?>[0]); emit("RESET", "已开场；ReaderMode 先就位，首轮寻卡归 App"); }
-                    catch (Throwable t) { emit("RESET", "resumePolling 失败：" + t); }
+                    try {
+                        if (rootPauseUsed) {
+                            String out = runRoot("resume", 0);
+                            if (out == null || !out.contains("ROOTRESUME|")) throw new IllegalStateException("root resume failed: " + out);
+                            emit("RESET", "已开场（root）；ReaderMode 先就位，首轮寻卡归 App");
+                        } else {
+                            invoke("resumePolling", new Class<?>[0]);
+                            emit("RESET", "已开场；ReaderMode 先就位，首轮寻卡归 App");
+                        }
+                    } catch (Throwable t) { emit("RESET", "resumePolling 失败：" + t); }
                 }
                 sessionStarted = true;
                 emit("START", args[0] + ":" + seconds);
